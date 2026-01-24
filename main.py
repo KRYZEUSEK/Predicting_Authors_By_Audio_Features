@@ -1,45 +1,10 @@
-import pandas as pd
 import torch
 import torch.nn as nn
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
 from torch.utils.data import DataLoader, Dataset
 from torchmetrics import Accuracy, ConfusionMatrix
 
-path = "C:/Users/niemi/.cache/kagglehub/datasets/serkantysz/550k-spotify-songs-audio-lyrics-and-genres/versions/1/songs.csv"
-dataset = pd.read_csv(path)
-labels = dataset.loc[:, "artists"]
-features = dataset[:][
-    [
-        "acousticness",
-        "danceability",
-        "energy",
-        "instrumentalness",
-        "liveness",
-        "loudness",
-        "speechiness",
-        "tempo",
-        "valence",
-        "genre",
-    ]
-]
-new_dataset = pd.concat([features, labels], axis=1)
+from Preprocessing import Train, test
 
-Train, test = train_test_split(
-    new_dataset, test_size=0.2, random_state=42, shuffle=True
-)
-train_features = Train.iloc[:, :-1].values
-train_labels = Train.iloc[:, -1].values
-
-test_features = test.iloc[:, :-1].values
-test_labels = test.iloc[:, -1].values
-
-scaler = StandardScaler()
-train_features = scaler.fit_transform(train_features)
-test_features = scaler.transform(test_features)
-
-Train.iloc[:, :-1] = train_features
-test.iloc[:, :-1] = test_features
 
 class ModelDataset(Dataset):
     def __init__(self, dataframe):
@@ -52,7 +17,7 @@ class ModelDataset(Dataset):
     def __getitem__(self, idx):
         features = self.data[idx, :-1]
         labels = self.data[idx, -1]
-        return features, labels
+        return torch.tensor(features, dtype=torch.float32), torch.tensor(labels, dtype=torch.long)
 
 
 train_data = ModelDataset(Train)
@@ -66,17 +31,23 @@ class NeuralNetwork(nn.Module):
     def __init__(self):
         super(NeuralNetwork, self).__init__()
         self.layer1 = nn.Linear(10, 64)
+        self.activ1 = nn.ReLU()
         self.layer2 = nn.Linear(64, 128)
+        self.activ2 = nn.ReLU()
         self.layer3 = nn.Linear(128, 64)
+        self.activ3 = nn.ReLU()
         self.output_layer = nn.Linear(64, 10)
-        self.relu = nn.ReLU()
 
     def forward(self, x):
-        x = self.relu(self.layer1(x))
-        x = self.relu(self.layer2(x))
-        x = self.relu(self.layer3(x))
+        x = self.layer1(x)
+        x = self.activ1(x)
+        x = self.layer2(x)
+        x = self.activ2(x)
+        x = self.layer3(x)
+        x = self.activ3(x)
         x = self.output_layer(x)
         return x
+
 
 class EarlyStopping:
     def __init__(self, patience=5, min_delta=0.0):
@@ -105,8 +76,8 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode="min", factor=0.5, patience=3, verbose=True
 )
 
-acc = Accuracy("multiclass")
-confusion_matrix = ConfusionMatrix(num_classes=10)
+acc = Accuracy("multiclass", num_classes=10)
+confusion_matrix = ConfusionMatrix(task="multiclass", num_classes=10)
 
 for epoch in range(30):
     model.train()
