@@ -1,25 +1,30 @@
-import numpy as np
 import pandas as pd
-import torch
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from torch.utils.data import TensorDataset
 
 path = "C:/Users/niemi/.cache/kagglehub/datasets/serkantysz/550k-spotify-songs-audio-lyrics-and-genres/versions/1/songs.csv"
 dataset = pd.read_csv(path)
-#print(dataset.head())
-#print(dataset.shape)
-#print(dataset.dtypes)
-#print(dataset[dataset.duplicated()])
-#print(dataset.isna().sum())
+dataset = dataset[dataset["artists"].duplicated(keep=False)]
+
+artist_count = dataset["artists"].value_counts()
+dataset["artist_frequency"] = dataset["artists"].map(artist_count)
+dataset = dataset[dataset["artist_frequency"] > 200]
+dataset = dataset.drop("artist_frequency", axis=1)
+print(dataset.head())
+print(dataset.shape)
+print(dataset.dtypes)
+print(dataset[dataset.duplicated()])
+print(dataset.isna().sum())
 
 label_encoder = LabelEncoder()
 
 labels = dataset.loc[:, "artists"]
+
 labels_encoded = label_encoder.fit_transform(labels)
 
-labels_pd = pd.DataFrame(labels_encoded, columns=["artists"], dtype=float)
-print(type(labels_pd))
+labels_encoded = pd.DataFrame(labels_encoded, columns=["artists"], dtype=float).reset_index(drop=True)
+
+print(type(labels_encoded))
 
 features = dataset[:][
     [
@@ -34,27 +39,31 @@ features = dataset[:][
         "valence",
         "genre",
     ]
-]
+].reset_index(drop=True)
+
+label_encoder_genre = LabelEncoder()
+
 genre = features[:]["genre"]
+features_encoded = label_encoder_genre.fit_transform(genre)
 
-features_encoded = label_encoder.fit_transform(genre)
-genre_pd = pd.DataFrame(features_encoded, dtype=float)
-
-features = features.drop("genre", axis=1)
-features_pd = pd.concat([features, genre_pd], axis=1)
+features_encoded = pd.DataFrame(features_encoded, columns=["genre"], dtype=float).reset_index(drop=True)
+features.drop("genre", axis=1, inplace=True)
+features_pd = pd.concat([features, features_encoded], axis=1)
 print(features_pd.head())
 print(type(features_pd))
 
-new_dataset = pd.concat([features_pd, labels_pd], axis=1)
+new_dataset = pd.concat([features_pd, labels_encoded], axis=1)
 
+assert not new_dataset.isna().any().any()
 print(new_dataset.head())
+print(new_dataset.dtypes)
 print(len(new_dataset.index), len(new_dataset.columns))
 print(new_dataset["artists"].nunique())
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 Train, test = train_test_split(
     new_dataset, test_size=0.2, random_state=42, shuffle=True
 )
+print(Train.head(), test.head())
 train_features = Train.iloc[:, :-1].values
 train_labels = Train.iloc[:, -1].values
 

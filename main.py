@@ -1,3 +1,5 @@
+import matplotlib.pyplot as plt
+import seaborn as sns
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
@@ -17,7 +19,7 @@ class ModelDataset(Dataset):
     def __getitem__(self, idx):
         features = self.data[idx, :-1]
         labels = self.data[idx, -1]
-        return torch.tensor(features, dtype=torch.float32), torch.tensor(labels, dtype=torch.long)
+        return torch.tensor(features, dtype=torch.float64), torch.tensor(labels, dtype=torch.long)
 
 
 train_data = ModelDataset(Train)
@@ -36,7 +38,7 @@ class NeuralNetwork(nn.Module):
         self.activ2 = nn.ReLU()
         self.layer3 = nn.Linear(128, 64)
         self.activ3 = nn.ReLU()
-        self.output_layer = nn.Linear(64, 10)
+        self.output_layer = nn.Linear(64, 181)
 
     def forward(self, x):
         x = self.layer1(x)
@@ -76,9 +78,12 @@ scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode="min", factor=0.5, patience=3, verbose=True
 )
 
-acc = Accuracy("multiclass", num_classes=10)
-confusion_matrix = ConfusionMatrix(task="multiclass", num_classes=10)
+acc = Accuracy("multiclass", num_classes=181)
+confusion_matrix = ConfusionMatrix(task="multiclass", num_classes=181)
 
+train_loss = []
+validation_loss = []
+validation_accuracy = []
 for epoch in range(30):
     model.train()
     running_loss = 0.0
@@ -89,9 +94,12 @@ for epoch in range(30):
         loss.backward()
         optimizer.step()
         running_loss += loss.item()
+        train_loss.append(loss.item())
     running_loss /= len(train_loader.dataset)
 
     model.eval()
+    all_predictions = []
+    all_labels = []
     val_loss = 0.0
     with torch.no_grad():
         for features, labels in test_loader:
@@ -99,7 +107,11 @@ for epoch in range(30):
             loss = criterion(outputs, labels.long())
             val_loss += loss.item()
             _, predicted = torch.max(outputs.data, 1)
-            acc.update(predicted, labels.long())
+            acc.update(predicted, labels)
+            validation_accuracy.append(acc.compute().item())
+            validation_loss.append(loss.item())
+            all_predictions.append(predicted.cpu())
+            all_labels.append(labels.cpu())
     
     accuracy = acc.compute()
     val_loss = val_loss / len(test_loader.dataset)
@@ -114,3 +126,57 @@ for epoch in range(30):
         f"Epoch [{epoch+1}/30], Training Loss: {running_loss:.4f}, Validation Loss: {val_loss:.4f}"
     )
     print(f"Test Accuracy: {accuracy:.4f}")
+
+label_predictions = torch.cat(all_predictions)
+label_true = torch.cat(all_labels)
+top_k = 20
+top_classes = (
+    label_true
+    .bincount()
+    .argsort(descending=True)[:top_k]
+)
+mask = torch.isin(label_true, top_classes)
+
+label_true_top = label_true[mask]
+label_predictions_top = label_predictions[mask]
+
+cm = confusion_matrix(
+    label_true_top.numpy(),
+    label_predictions_top.numpy(),
+    labels=top_classes.numpy()
+)
+
+# Loss
+plt.figure(figsize=(8, 5))
+plt.plot(train_loss, label="Train Loss")
+plt.plot(validation_loss, label="Validation Loss")
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.title("Training vs Validation Loss")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Accuracy
+plt.figure(figsize=(8, 5))
+plt.plot(validation_accuracy, label="Validation Accuracy")
+plt.xlabel("Epoch")
+plt.ylabel("Accuracy")
+plt.title("Training vs Validation Accuracy")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# Confusion Matrix
+plt.figure(figsize=(12, 10))
+sns.heatmap(
+    cm,
+    annot=False,
+    cmap="Blues",
+    xticklabels=top_classes.numpy(),
+    yticklabels=top_classes.numpy()
+)
+plt.xlabel("Predicted")
+plt.ylabel("True")
+plt.title("Confusion Matrix (Top 20 Artists)")
+plt.show()
